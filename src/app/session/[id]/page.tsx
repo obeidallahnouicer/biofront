@@ -215,7 +215,7 @@ export default function SessionWorkspacePage() {
                   <AIPanel sessionId={sessionId} />
                 </TabsContent>
                 <TabsContent value="participants" className="flex-1 overflow-hidden m-0">
-                  <ParticipantsPanel />
+                  <ParticipantsPanel sessionId={sessionId} />
                 </TabsContent>
                 <TabsContent value="activity" className="flex-1 overflow-hidden m-0">
                   <ActivityPanel sessionId={sessionId} />
