@@ -18,6 +18,7 @@ interface AuthState {
   clearError: () => void;
   setUser: (user: User | null) => void;
   checkAuth: () => Promise<boolean>;
+  initializeAuth: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -80,7 +81,7 @@ export const useAuthStore = create<AuthState>()(
           set({ user, isAuthenticated: true });
 
           // Connect WebSocket if not connected
-          const token = typeof globalThis.window !== 'undefined' 
+          const token = globalThis.window !== undefined
             ? localStorage.getItem('access_token') 
             : null;
           if (token && !wsClient.isConnected()) {
@@ -117,7 +118,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       checkAuth: async () => {
-        const token = typeof globalThis.window !== 'undefined' 
+        const token = globalThis.window !== undefined
           ? localStorage.getItem('access_token') 
           : null;
         
@@ -133,6 +134,15 @@ export const useAuthStore = create<AuthState>()(
           apiClient.clearTokens();
           set({ isAuthenticated: false, user: null });
           return false;
+        }
+      },
+
+      initializeAuth: async () => {
+        set({ isLoading: true });
+        try {
+          await get().checkAuth();
+        } finally {
+          set({ isLoading: false });
         }
       },
     }),
