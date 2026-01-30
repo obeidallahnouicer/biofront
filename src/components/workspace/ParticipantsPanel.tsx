@@ -8,6 +8,19 @@ import { Badge } from "@/components/ui/badge"
 import { useSessionStore } from "@/stores/sessionStore"
 import type { PresenceUser } from "@/types"
 
+// Generate a consistent color from user ID
+const getUserColor = (userId: string): string => {
+  const colors = [
+    "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
+    "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#d946ef"
+  ]
+  let hash = 0
+  for (let i = 0; i < userId.length; i++) {
+    hash = userId.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return colors[Math.abs(hash) % colors.length]
+}
+
 interface ParticipantsPanelProps {
   readonly sessionId: string
 }
@@ -69,7 +82,8 @@ export function ParticipantsPanel({ sessionId }: ParticipantsPanelProps) {
           ) : (
             participants.map((participant) => {
               const presence = getPresenceStatus(participant.user_id)
-              const isOnline = !!presence
+              const isOnline = !!presence && presence.status === "online"
+              const userColor = getUserColor(participant.user_id)
 
               return (
                 <div
@@ -80,7 +94,7 @@ export function ParticipantsPanel({ sessionId }: ParticipantsPanelProps) {
                     <Avatar>
                       <AvatarFallback
                         style={{
-                          backgroundColor: presence?.color || "#94a3b8",
+                          backgroundColor: userColor,
                         }}
                         className="text-white"
                       >
@@ -117,16 +131,16 @@ export function ParticipantsPanel({ sessionId }: ParticipantsPanelProps) {
         <div className="p-3 border-t">
           <p className="text-xs font-medium text-muted-foreground mb-2">Currently Active</p>
           <div className="flex flex-wrap gap-1">
-            {presenceArray.map((user) => (
+            {presenceArray.map((presence) => (
               <div
-                key={user.user_id}
+                key={presence.user_id}
                 className="flex items-center gap-1 px-2 py-1 bg-muted rounded-full text-xs"
               >
                 <span
                   className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: user.color }}
+                  style={{ backgroundColor: getUserColor(presence.user_id) }}
                 />
-                <span>{user.name}</span>
+                <span>{presence.user?.full_name || "Unknown"}</span>
               </div>
             ))}
           </div>
