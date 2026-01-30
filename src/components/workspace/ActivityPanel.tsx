@@ -106,8 +106,8 @@ export function ActivityPanel({ sessionId }: ActivityPanelProps) {
     try {
       setIsLoading(true)
       setError(null)
-      const response = await apiClient.sessions.getActivity(sessionId)
-      setActivities(response.data.items || response.data)
+      const response = await apiClient.getSessionActivity(sessionId)
+      setActivities(response.items || [])
     } catch (err) {
       console.error("Failed to load activities:", err)
       setError("Failed to load activity log")
