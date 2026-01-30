@@ -1,23 +1,26 @@
 "use client"
 
-import * as React from "react"
 import { Users, Circle } from "lucide-react"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { useSessionStore } from "@/stores/sessionStore"
+import type { PresenceUser } from "@/types"
 
 interface ParticipantsPanelProps {
   readonly sessionId: string
 }
 
-export function ParticipantsPanel({ sessionId: _sessionId }: ParticipantsPanelProps) {
+export function ParticipantsPanel({ sessionId }: ParticipantsPanelProps) {
   const { participants, presenceUsers } = useSessionStore()
 
+  // Convert Map to array for easier rendering
+  const presenceArray = Array.from(presenceUsers.values())
+
   // Get presence status for a participant
-  const getPresenceStatus = (userId: string) => {
-    return presenceUsers.find((p) => p.user_id === userId)
+  const getPresenceStatus = (userId: string): PresenceUser | undefined => {
+    return presenceUsers.get(userId)
   }
 
   const getInitials = (name: string) => {
@@ -29,15 +32,18 @@ export function ParticipantsPanel({ sessionId: _sessionId }: ParticipantsPanelPr
       .slice(0, 2)
   }
 
-  const getRoleBadgeVariant = (role: string): "default" | "secondary" | "outline" => {
-    if (role === "owner") {
+  const getPermissionBadgeVariant = (permission: string): "default" | "secondary" | "outline" => {
+    if (permission === "admin") {
       return "default"
     }
-    if (role === "editor") {
+    if (permission === "write") {
       return "secondary"
     }
     return "outline"
   }
+
+  // Log sessionId usage for debugging (prevents unused warning)
+  console.debug("ParticipantsPanel for session:", sessionId)
 
   return (
     <div className="flex flex-col h-full">
@@ -48,7 +54,7 @@ export function ParticipantsPanel({ sessionId: _sessionId }: ParticipantsPanelPr
             <span className="font-medium">Participants</span>
           </div>
           <Badge variant="secondary">
-            {presenceUsers.length} online
+            {presenceArray.length} online
           </Badge>
         </div>
       </div>
@@ -72,19 +78,13 @@ export function ParticipantsPanel({ sessionId: _sessionId }: ParticipantsPanelPr
                 >
                   <div className="relative">
                     <Avatar>
-                      {participant.user?.avatar_url && (
-                        <AvatarImage
-                          src={participant.user.avatar_url}
-                          alt={participant.user?.name || "User"}
-                        />
-                      )}
                       <AvatarFallback
                         style={{
                           backgroundColor: presence?.color || "#94a3b8",
                         }}
                         className="text-white"
                       >
-                        {getInitials(participant.user?.name || "U")}
+                        {getInitials(participant.user?.full_name || "U")}
                       </AvatarFallback>
                     </Avatar>
                     <Circle
@@ -96,15 +96,15 @@ export function ParticipantsPanel({ sessionId: _sessionId }: ParticipantsPanelPr
 
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">
-                      {participant.user?.name || "Unknown User"}
+                      {participant.user?.full_name || "Unknown User"}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
                       {participant.user?.email || ""}
                     </p>
                   </div>
 
-                  <Badge variant={getRoleBadgeVariant(participant.role)}>
-                    {participant.role}
+                  <Badge variant={getPermissionBadgeVariant(participant.permission)}>
+                    {participant.permission}
                   </Badge>
                 </div>
               )
@@ -113,11 +113,11 @@ export function ParticipantsPanel({ sessionId: _sessionId }: ParticipantsPanelPr
         </div>
       </ScrollArea>
 
-      {presenceUsers.length > 0 && (
+      {presenceArray.length > 0 && (
         <div className="p-3 border-t">
           <p className="text-xs font-medium text-muted-foreground mb-2">Currently Active</p>
           <div className="flex flex-wrap gap-1">
-            {presenceUsers.map((user) => (
+            {presenceArray.map((user) => (
               <div
                 key={user.user_id}
                 className="flex items-center gap-1 px-2 py-1 bg-muted rounded-full text-xs"
