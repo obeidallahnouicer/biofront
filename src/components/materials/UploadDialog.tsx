@@ -40,6 +40,7 @@ interface UploadDialogProps {
   readonly sessionId: string
   readonly open: boolean
   readonly onOpenChange: (open: boolean) => void
+  readonly materialType?: MaterialType
 }
 
 const materialTypeOptions = [
@@ -93,8 +94,8 @@ const formatFileSize = (bytes: number): string => {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB"
 }
 
-export function UploadDialog({ sessionId, open, onOpenChange }: UploadDialogProps) {
-  const [materialType, setMaterialType] = React.useState<MaterialType>(MaterialType.PAPER)
+export function UploadDialog({ sessionId, open, onOpenChange, materialType: initialType }: UploadDialogProps) {
+  const [materialType, setMaterialType] = React.useState<MaterialType>(initialType ?? MaterialType.PAPER)
   const [title, setTitle] = React.useState("")
   const [description, setDescription] = React.useState("")
   const [file, setFile] = React.useState<File | null>(null)
@@ -102,6 +103,13 @@ export function UploadDialog({ sessionId, open, onOpenChange }: UploadDialogProp
   const [error, setError] = React.useState<string | null>(null)
 
   const { uploadMaterial } = useSessionStore()
+
+  // Update material type when prop changes
+  React.useEffect(() => {
+    if (initialType) {
+      setMaterialType(initialType)
+    }
+  }, [initialType])
 
   const onDrop = React.useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
