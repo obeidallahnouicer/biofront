@@ -27,9 +27,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useTeamStore } from "@/stores/teamStore"
 import { Loading } from "@/components/ui/loading"
-import { formatRelativeTime } from "@/lib/utils"
+import { useSearchParams } from "next/navigation"
 
 export default function TeamsPage() {
+  const searchParams = useSearchParams()
   const [createOpen, setCreateOpen] = React.useState(false)
   const [newTeamName, setNewTeamName] = React.useState("")
   const [newTeamDescription, setNewTeamDescription] = React.useState("")
@@ -40,6 +41,12 @@ export default function TeamsPage() {
   React.useEffect(() => {
     fetchTeams()
   }, [fetchTeams])
+
+  React.useEffect(() => {
+    if (searchParams.get("create") === "true") {
+      setCreateOpen(true)
+    }
+  }, [searchParams])
 
   const handleCreateTeam = async () => {
     if (!newTeamName.trim()) return
@@ -164,7 +171,7 @@ export default function TeamsPage() {
                         </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/teams/${team.id}/invite`}>
+                        <Link href={`/dashboard/teams/${team.id}?invite=true`}>
                           <UserPlus className="mr-2 h-4 w-4" />
                           Invite Members
                         </Link>
@@ -186,7 +193,8 @@ export default function TeamsPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <span>Created {formatRelativeTime(team.created_at)}</span>
+                  <span>{team.member_count ?? "—"} members</span>
+                  <span className="capitalize">{team.role || "member"}</span>
                 </div>
               </CardContent>
             </Card>

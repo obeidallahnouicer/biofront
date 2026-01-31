@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Plus, FolderOpen, MoreHorizontal, Archive, Trash2, ExternalLink, Search } from "lucide-react"
+import { Plus, FolderOpen, MoreHorizontal, Archive, ExternalLink, Search } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -44,6 +44,7 @@ export default function SessionsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const preselectedTeam = searchParams.get("team")
+  const openCreate = searchParams.get("create") === "true"
 
   const [createOpen, setCreateOpen] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState("")
@@ -56,11 +57,11 @@ export default function SessionsPage() {
   const [tagInput, setTagInput] = React.useState("")
   const [isCreating, setIsCreating] = React.useState(false)
 
-  const { sessions, isLoading, fetchSessions, createSession, archiveSession, deleteSession } = useSessionStore()
+  const { sessions, isLoading, fetchSessions, createSession, archiveSession, unarchiveSession } = useSessionStore()
   const { teams, fetchTeams } = useTeamStore()
 
   React.useEffect(() => {
-    fetchSessions()
+    fetchSessions({ include_archived: true })
     fetchTeams()
   }, [fetchSessions, fetchTeams])
 
@@ -69,6 +70,12 @@ export default function SessionsPage() {
       setNewSession((prev) => ({ ...prev, team_id: preselectedTeam }))
     }
   }, [preselectedTeam])
+
+  React.useEffect(() => {
+    if (openCreate) {
+      setCreateOpen(true)
+    }
+  }, [openCreate])
 
   const handleCreateSession = async () => {
     if (!newSession.title.trim() || !newSession.team_id) return
@@ -108,15 +115,17 @@ export default function SessionsPage() {
     }))
   }
 
-  const handleArchive = async (sessionId: string) => {
-    await archiveSession(sessionId)
-  }
-
-  const handleDelete = async (sessionId: string) => {
-    if (confirm("Are you sure you want to delete this session?")) {
-      await deleteSession(sessionId)
+  const handleArchive = async (sessionId: string, archived: boolean) => {
+    if (archived) {
+      await unarchiveSession(sessionId)
+    } else {
+      await archiveSession(sessionId)
     }
   }
+
+  const teamMap = React.useMemo(() => {
+    return new Map(teams.map((team) => [team.id, team.name]))
+  }, [teams])
 
   const activeSessions = sessions.filter((s) => !s.is_archived)
   const archivedSessions = sessions.filter((s) => s.is_archived)
@@ -289,8 +298,8 @@ export default function SessionsPage() {
                 <SessionCard
                   key={session.id}
                   session={session}
-                  onArchive={() => handleArchive(session.id)}
-                  onDelete={() => handleDelete(session.id)}
+                  onArchive={() => handleArchive(session.id, false)}
+                  teamName={teamMap.get(session.team_id)}
                 />
               ))}
             </div>
@@ -314,8 +323,8 @@ export default function SessionsPage() {
                 <SessionCard
                   key={session.id}
                   session={session}
-                  onArchive={() => handleArchive(session.id)}
-                  onDelete={() => handleDelete(session.id)}
+                  onArchive={() => handleArchive(session.id, true)}
+                  teamName={teamMap.get(session.team_id)}
                   isArchived
                 />
               ))}
@@ -334,14 +343,14 @@ interface SessionCardProps {
     description?: string
     topic_tags: string[]
     updated_at: string
-    team?: { name: string }
+    team_id: string
   }
   readonly onArchive: () => void
-  readonly onDelete: () => void
+  readonly teamName?: string
   readonly isArchived?: boolean
 }
 
-function SessionCard({ session, onArchive, onDelete, isArchived }: SessionCardProps) {
+function SessionCard({ session, onArchive, teamName, isArchived }: SessionCardProps) {
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardHeader className="pb-3">
@@ -368,11 +377,6 @@ function SessionCard({ session, onArchive, onDelete, isArchived }: SessionCardPr
                 <Archive className="mr-2 h-4 w-4" />
                 {isArchived ? "Unarchive" : "Archive"}
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive" onClick={onDelete}>
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -394,7 +398,7 @@ function SessionCard({ session, onArchive, onDelete, isArchived }: SessionCardPr
           )}
         </div>
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{session.team?.name || "Unknown team"}</span>
+          <span>{teamName || "Unknown team"}</span>
           <span>{formatRelativeTime(session.updated_at)}</span>
         </div>
       </CardContent>

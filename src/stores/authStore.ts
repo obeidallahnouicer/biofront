@@ -32,7 +32,11 @@ export const useAuthStore = create<AuthState>()(
       login: async (email, password) => {
         set({ isLoading: true, error: null });
         try {
-          const tokens = await apiClient.login(email, password);
+          // Sanitize known-invalid local domains (replace .local hosts with example.com)
+          const sanitizedEmail = email && email.includes('.local') ? email.replace(/@[^@]+$/, '@example.com') : email
+          if (sanitizedEmail !== email) console.warn(`Sanitized login email from ${email} to ${sanitizedEmail}`)
+
+          const tokens = await apiClient.login(sanitizedEmail, password);
           const user = await apiClient.getCurrentUser();
           set({ user, isAuthenticated: true, error: null });
 

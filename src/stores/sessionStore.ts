@@ -34,7 +34,7 @@ interface SessionState {
   selectedMaterialIds: string[];
 
   // Session actions
-  fetchSessions: (params?: { team_id?: string; archived?: boolean }) => Promise<void>;
+  fetchSessions: (params?: { team_id?: string; include_archived?: boolean }) => Promise<void>;
   fetchSession: (sessionId: string) => Promise<void>;
   createSession: (data: {
     team_id: string;
@@ -45,13 +45,22 @@ interface SessionState {
   updateSession: (sessionId: string, data: Partial<Session>) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   archiveSession: (sessionId: string) => Promise<void>;
+  unarchiveSession: (sessionId: string) => Promise<void>;
   searchSessions: (query: string) => Promise<Session[]>;
 
   // Material actions
   loadMaterials: (sessionId: string) => Promise<void>;
   addMaterial: (material: Material) => void;
   updateMaterial: (materialId: string, changes: Partial<Material>) => void;
+  updateMaterialMetadata: (materialId: string, metadata: Record<string, unknown>) => void;
+  persistMaterialMetadata: (materialId: string, metadata: Record<string, unknown>) => Promise<void>;
   deleteMaterial: (materialId: string) => void;
+  createMaterial: (
+    sessionId: string,
+    materialType: MaterialType,
+    title: string,
+    metadata?: Record<string, unknown>
+  ) => Promise<Material>;
   uploadMaterial: (
     sessionId: string,
     file: File,
@@ -75,9 +84,9 @@ interface SessionState {
     sessionId: string,
     researchGoal: string,
     focusArea?: string,
-    numHypotheses?: number
+    numHypotheses?: number,
+    llmModel?: string
   ) => Promise<Hypothesis[]>;
-  loadHypotheses: (sessionId: string) => Promise<void>;
   rankVariants: (
     sessionId: string,
     sequences: Array<{ id?: string; sequence: string; name?: string }>,
@@ -141,7 +150,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       await Promise.all([
         get().loadMaterials(sessionId),
         get().loadParticipants(sessionId),
-        get().loadHypotheses(sessionId),
       ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch session';
@@ -185,24 +193,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   deleteSession: async (sessionId) => {
-    set({ isLoading: true, error: null });
-    try {
-      await apiClient.deleteSession(sessionId);
-      set((state) => ({
-        sessions: state.sessions.filter((s) => s.id !== sessionId),
-        currentSession: state.currentSession?.id === sessionId ? null : state.currentSession,
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete session';
-      set({ error: message });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
+    await apiClient.archiveSession(sessionId);
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId ? { ...s, is_archived: true } : s
+      ),
+      currentSession: state.currentSession?.id === sessionId
+        ? { ...state.currentSession, is_archived: true }
+        : state.currentSession,
+    }));
   },
 
   archiveSession: async (sessionId) => {
-    await get().updateSession(sessionId, { is_archived: true });
+    await apiClient.archiveSession(sessionId);
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId ? { ...s, is_archived: true } : s
+      ),
+    }));
+  },
+
+  unarchiveSession: async (sessionId) => {
+    await apiClient.unarchiveSession(sessionId);
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId ? { ...s, is_archived: false } : s
+      ),
+    }));
   },
 
   searchSessions: async (query) => {
@@ -218,7 +235,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   loadMaterials: async (sessionId) => {
     try {
       const response = await apiClient.getSessionMaterials(sessionId, { limit: 200 });
-      set({ materials: response.items });
+      const detailedMaterials = await Promise.all(
+        response.items.map((item) => apiClient.getMaterial(item.id))
+      );
+      set({ materials: detailedMaterials });
     } catch (error) {
       console.error('Failed to load materials:', error);
     }
@@ -238,6 +258,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }));
   },
 
+  updateMaterialMetadata: (materialId, metadata) => {
+    set((state) => ({
+      materials: state.materials.map((m) =>
+        m.id === materialId ? { ...m, metadata: { ...(m.metadata || {}), ...metadata } } : m
+      ),
+    }));
+  },
+
+  persistMaterialMetadata: async (materialId, metadata) => {
+    try {
+      const material = await apiClient.updateMaterial(materialId, { metadata });
+      get().updateMaterial(materialId, material);
+    } catch (error) {
+      console.error('Failed to persist material metadata:', error);
+    }
+  },
+
   deleteMaterial: (materialId) => {
     set((state) => ({
       materials: state.materials.filter((m) => m.id !== materialId),
@@ -245,25 +282,91 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }));
   },
 
+  createMaterial: async (sessionId, materialType, title, metadata) => {
+    set({ isLoading: true, error: null });
+    try {
+      const material = await apiClient.createMaterial({
+        session_id: sessionId,
+        material_type: materialType,
+        title,
+        metadata: metadata ?? null,
+      });
+      get().addMaterial(material);
+      return material;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create material';
+      set({ error: message });
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
   uploadMaterial: async (sessionId, file, materialType, title, metadata) => {
     set({ isLoading: true, error: null });
     try {
       // 1. Initiate upload
-      const { material_id, upload_url } = await apiClient.initiateUpload({
+      const { material_id, upload_url, upload_id, parts, bucket, object_key } = await apiClient.initiateUpload({
         session_id: sessionId,
         material_type: materialType,
         title,
         filename: file.name,
-        metadata,
+        content_type: file.type || 'application/octet-stream',
+        file_size: file.size,
       });
 
-      // 2. Upload file to presigned URL
-      await apiClient.uploadFile(upload_url, file);
+      // 2. Calculate checksum (optional)
+      let checksum: string | null = null;
+      try {
+        if (globalThis.crypto?.subtle) {
+          const buffer = await file.arrayBuffer();
+          const digest = await globalThis.crypto.subtle.digest('SHA-256', buffer);
+          const hashArray = Array.from(new Uint8Array(digest));
+          checksum = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+        }
+      } catch {
+        checksum = null;
+      }
 
-      // 3. Complete upload
-      const material = await apiClient.completeUpload(material_id);
+      // 3. Upload file to presigned URL (single or multipart)
+      if (upload_url) {
+        await apiClient.uploadFile(upload_url, file);
+      } else if (upload_id && parts && parts.length > 0) {
+        const partSize = Math.ceil(file.size / parts.length);
+        const uploadedParts: Array<{ part_number: number; etag: string }> = [];
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const start = i * partSize;
+          const end = Math.min(start + partSize, file.size);
+          const chunk = file.slice(start, end);
+          const etag = await apiClient.uploadPart(part.url, chunk, file.type || 'application/octet-stream');
+          if (!etag) {
+            throw new Error('Failed to upload part');
+          }
+          uploadedParts.push({ part_number: part.part_number, etag });
+        }
+        await apiClient.completeMultipartUpload({
+          bucket,
+          object_key,
+          upload_id,
+          parts: uploadedParts,
+          checksum,
+        });
+      } else {
+        throw new Error('Upload initialization failed')
+      }
 
-      // 4. Add to local state
+      // 4. Complete upload metadata
+      const material = await apiClient.completeUpload(material_id, checksum);
+
+      // 5. Patch metadata if provided
+      if (metadata && Object.keys(metadata).length > 0) {
+        const updated = await apiClient.updateMaterial(material_id, { metadata });
+        get().addMaterial(updated);
+        return updated;
+      }
+
+      // 6. Add to local state
       get().addMaterial(material);
 
       return material;
@@ -280,7 +383,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   loadParticipants: async (sessionId) => {
     try {
       const participants = await apiClient.getSessionParticipants(sessionId);
-      set({ participants });
+      const users = await Promise.all(
+        participants.map(async (participant) => {
+          try {
+            const user = await apiClient.getUser(participant.user_id);
+            return { ...participant, user };
+          } catch {
+            return participant;
+          }
+        })
+      );
+      set({ participants: users });
     } catch (error) {
       console.error('Failed to load participants:', error);
     }
@@ -328,13 +441,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   // AI actions
-  generateHypotheses: async (sessionId, researchGoal, focusArea, numHypotheses) => {
+  generateHypotheses: async (sessionId, researchGoal, focusArea, numHypotheses, llmModel) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await apiClient.generateHypotheses(sessionId, {
+      const response = await apiClient.generateHypotheses({
+        session_id: sessionId,
         research_goal: researchGoal,
         focus_area: focusArea,
         num_hypotheses: numHypotheses,
+        llm_model: llmModel,
       });
       set({ hypotheses: response.hypotheses });
       return response.hypotheses;
@@ -344,15 +459,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       throw error;
     } finally {
       set({ isLoading: false });
-    }
-  },
-
-  loadHypotheses: async (sessionId) => {
-    try {
-      const response = await apiClient.getHypotheses(sessionId);
-      set({ hypotheses: response.hypotheses });
-    } catch (error) {
-      console.error('Failed to load hypotheses:', error);
     }
   },
 

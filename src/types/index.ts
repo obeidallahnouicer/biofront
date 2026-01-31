@@ -21,9 +21,11 @@ export interface Team {
   id: string;
   name: string;
   description?: string;
-  created_by_id: string;
-  created_at: string;
-  updated_at: string;
+  created_by_id?: string;
+  created_at?: string;
+  updated_at?: string;
+  role?: TeamRole;
+  member_count?: number;
 }
 
 export interface TeamMember {
@@ -44,6 +46,10 @@ export interface TeamInvitation {
   invited_by?: User;
   expires_at: string;
   created_at: string;
+}
+
+export interface TeamInvitationToken {
+  token: string;
 }
 
 // Session types
@@ -81,9 +87,11 @@ export interface SessionActivity {
   session_id: string;
   user_id: string;
   user?: User;
-  action: string;
-  details?: Record<string, unknown>;
-  created_at: string;
+  action_type: string;
+  entity_type: string;
+  entity_id: string;
+  details?: Record<string, unknown> | null;
+  timestamp: string;
 }
 
 // Material types
@@ -98,13 +106,13 @@ export enum MaterialType {
 export interface Material {
   id: string;
   session_id: string;
-  uploaded_by_id: string;
+  uploaded_by_id?: string;
   uploaded_by?: User;
   material_type: MaterialType;
   title: string;
   file_url?: string;
   download_url?: string;
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown> | null;
   position?: { x: number; y: number };
   size?: { width: number; height: number };
   created_at: string;
@@ -161,26 +169,25 @@ export interface NoteMetadata {
 
 // AI Feature types
 export interface Hypothesis {
-  id: string;
-  session_id: string;
-  statement: string;
+  hypothesis: string;
   rationale: string;
   experimental_approach: string;
-  expected_outcomes: string[];
+  expected_outcomes: string;
   required_resources: string[];
-  evidence: EvidenceItem[];
+  evidence_citations: string[];
   feasibility_score: number;
   evidence_score: number;
   novelty_score: number;
   overall_score: number;
-  created_at: string;
 }
 
 export interface EvidenceItem {
+  sequence_id: string;
+  similarity: number;
+  outcome_value: unknown;
+  outcome_type: string;
   source: string;
-  relevance: string;
-  doi?: string;
-  similarity_score: number;
+  description: string;
 }
 
 export interface RankedVariant {
@@ -252,8 +259,11 @@ export interface TokenResponse {
 
 export interface UploadInitiateResponse {
   material_id: string;
-  upload_url: string;
-  expires_in: number;
+  upload_url?: string | null;
+  upload_id?: string | null;
+  parts?: Array<{ part_number: number; url: string }> | null;
+  bucket: string;
+  object_key: string;
 }
 
 // Canvas types for workspace

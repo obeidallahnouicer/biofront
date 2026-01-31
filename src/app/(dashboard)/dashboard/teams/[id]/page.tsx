@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, UserPlus, MoreHorizontal, Trash2, Shield, FolderOpen } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -41,12 +41,14 @@ import { TeamRole } from "@/types"
 export default function TeamDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const teamId = params.id as string
 
   const [inviteOpen, setInviteOpen] = React.useState(false)
   const [inviteEmail, setInviteEmail] = React.useState("")
   const [inviteRole, setInviteRole] = React.useState<TeamRole>(TeamRole.MEMBER)
   const [isInviting, setIsInviting] = React.useState(false)
+  const [inviteToken, setInviteToken] = React.useState<string | null>(null)
 
   const { currentTeam, members, isLoading, fetchTeam, inviteMember, removeMember } = useTeamStore()
   const { sessions, fetchSessions } = useSessionStore()
@@ -56,12 +58,19 @@ export default function TeamDetailPage() {
     fetchSessions({ team_id: teamId })
   }, [teamId, fetchTeam, fetchSessions])
 
+  React.useEffect(() => {
+    if (searchParams.get("invite") === "true") {
+      setInviteOpen(true)
+    }
+  }, [searchParams])
+
   const handleInvite = async () => {
     if (!inviteEmail.trim()) return
 
     setIsInviting(true)
     try {
-      await inviteMember(teamId, inviteEmail, inviteRole)
+      const token = await inviteMember(teamId, inviteEmail, inviteRole)
+      setInviteToken(token)
       setInviteOpen(false)
       setInviteEmail("")
       setInviteRole(TeamRole.MEMBER)
@@ -72,9 +81,9 @@ export default function TeamDetailPage() {
     }
   }
 
-  const handleRemoveMember = async (memberId: string) => {
+  const handleRemoveMember = async (userId: string) => {
     if (confirm("Are you sure you want to remove this member?")) {
-      await removeMember(teamId, memberId)
+      await removeMember(teamId, userId)
     }
   }
 
@@ -148,7 +157,7 @@ export default function TeamDetailPage() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive"
-                            onClick={() => handleRemoveMember(member.id)}
+                            onClick={() => handleRemoveMember(member.user_id)}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Remove
@@ -170,7 +179,7 @@ export default function TeamDetailPage() {
               <CardTitle>Sessions</CardTitle>
               <CardDescription>Research sessions in this team</CardDescription>
             </div>
-            <Link href={`/dashboard/sessions/new?team=${teamId}`}>
+            <Link href={`/dashboard/sessions?create=true&team=${teamId}`}>
               <Button size="sm">New Session</Button>
             </Link>
           </CardHeader>
@@ -244,6 +253,34 @@ export default function TeamDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {inviteToken && (
+        <Dialog open={!!inviteToken} onOpenChange={(open) => !open && setInviteToken(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Invitation Link</DialogTitle>
+              <DialogDescription>
+                Share this link with your teammate to accept the invitation.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Input
+                readOnly
+                value={`${globalThis.location?.origin || ""}/dashboard/invitations/accept?token=${inviteToken}`}
+              />
+              <Button
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `${globalThis.location?.origin || ""}/dashboard/invitations/accept?token=${inviteToken}`
+                  )
+                }}
+              >
+                Copy Link
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

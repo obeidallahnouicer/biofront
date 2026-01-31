@@ -55,11 +55,11 @@ export function MaterialViewerDialog({
                 Download
               </Button>
             )}
-            {material.file_url && (
+            {(material.download_url || material.file_url) && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open(material.file_url, "_blank")}
+                onClick={() => window.open(material.download_url || material.file_url, "_blank")}
               >
                 <ExternalLink className="h-4 w-4 mr-1" />
                 Open
@@ -140,7 +140,7 @@ function MetaLink({ label, value, baseUrl }: {
 }
 
 function PaperViewer({ material }: MaterialContentProps) {
-  const metadata = material.metadata
+  const metadata = material.metadata || {}
   const abstract = getMetaString(metadata, "abstract")
   const authors = getMetaArray(metadata, "authors")
   const doi = getMetaString(metadata, "doi")
@@ -167,10 +167,10 @@ function PaperViewer({ material }: MaterialContentProps) {
       <MetaField label="Journal" value={journal} />
       <MetaField label="Publication Date" value={publicationDate} />
 
-      {material.file_url && (
+      {(material.download_url || material.file_url) && (
         <div className="mt-4">
           <iframe
-            src={material.file_url}
+            src={material.download_url || material.file_url}
             className="w-full h-[60vh] rounded-lg border"
             title={material.title}
           />
@@ -181,7 +181,7 @@ function PaperViewer({ material }: MaterialContentProps) {
 }
 
 function SequenceViewer({ material }: MaterialContentProps) {
-  const metadata = material.metadata
+  const metadata = material.metadata || {}
   const sequenceType = getMetaString(metadata, "sequence_type")
   const length = getMetaString(metadata, "length")
   const organism = getMetaString(metadata, "organism")
@@ -230,7 +230,7 @@ function SequenceViewer({ material }: MaterialContentProps) {
 }
 
 function ImageViewer({ material }: MaterialContentProps) {
-  const metadata = material.metadata
+  const metadata = material.metadata || {}
   const imageType = getMetaString(metadata, "image_type")
   const magnification = getMetaString(metadata, "magnification")
   const microscopeType = getMetaString(metadata, "microscope_type")
@@ -247,11 +247,11 @@ function ImageViewer({ material }: MaterialContentProps) {
 
   return (
     <div className="p-4 space-y-4">
-      {material.file_url && (
+      {(material.download_url || material.file_url) && (
         <div className="flex items-center justify-center bg-muted/50 rounded-lg p-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={material.file_url}
+            src={material.download_url || material.file_url}
             alt={material.title}
             className="max-w-full max-h-[50vh] object-contain rounded"
           />
@@ -269,7 +269,7 @@ function ImageViewer({ material }: MaterialContentProps) {
 }
 
 function ExperimentViewer({ material }: MaterialContentProps) {
-  const metadata = material.metadata
+  const metadata = material.metadata || {}
   const experimentType = getMetaString(metadata, "experiment_type")
   const conditions = metadata.conditions
   const outcomes = metadata.outcomes
@@ -299,10 +299,10 @@ function ExperimentViewer({ material }: MaterialContentProps) {
         </div>
       ) : null}
 
-      {material.file_url && (
+      {(material.download_url || material.file_url) && (
         <div className="pt-4">
           <Button asChild>
-            <a href={material.file_url} target="_blank" rel="noopener noreferrer">
+            <a href={material.download_url || material.file_url} target="_blank" rel="noopener noreferrer">
               <Download className="h-4 w-4 mr-2" />
               Download Experiment Data
             </a>

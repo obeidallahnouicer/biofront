@@ -50,13 +50,22 @@ export function AIPanel({ sessionId }: AIPanelProps) {
 function HypothesesTab({ sessionId }: { readonly sessionId: string }) {
   const [researchGoal, setResearchGoal] = React.useState("")
   const [focusArea, setFocusArea] = React.useState("")
+  const [model, setModel] = React.useState("gpt-4o-mini")
+  const [numHypotheses, setNumHypotheses] = React.useState(5)
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
 
   const { hypotheses, isLoading, generateHypotheses } = useSessionStore()
 
   const handleGenerate = async () => {
     if (!researchGoal.trim()) return
-    await generateHypotheses(sessionId, researchGoal, focusArea || undefined)
+    setError(null)
+    try {
+      await generateHypotheses(sessionId, researchGoal, focusArea || undefined, numHypotheses, model)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Hypothesis generation failed"
+      setError(message)
+    }
   }
 
   return (
@@ -79,6 +88,29 @@ function HypothesesTab({ sessionId }: { readonly sessionId: string }) {
             onChange={(e) => setFocusArea(e.target.value)}
           />
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <Label>Model</Label>
+            <Input
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="gpt-4o-mini"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Hypotheses Count</Label>
+            <Input
+              type="number"
+              min={1}
+              max={20}
+              value={numHypotheses}
+              onChange={(e) => setNumHypotheses(Number(e.target.value))}
+            />
+          </div>
+        </div>
+        {error && (
+          <div className="text-sm text-destructive">{error}</div>
+        )}
         <Button onClick={handleGenerate} disabled={isLoading || !researchGoal.trim()} className="w-full">
           {isLoading ? (
             <>
@@ -104,18 +136,18 @@ function HypothesesTab({ sessionId }: { readonly sessionId: string }) {
             </div>
           ) : (
             hypotheses.map((hypothesis) => (
-              <Card key={hypothesis.id}>
+              <Card key={hypothesis.hypothesis}>
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">
                     <CardTitle className="text-sm font-medium line-clamp-2">
-                      {hypothesis.statement}
+                      {hypothesis.hypothesis}
                     </CardTitle>
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => setExpandedId(expandedId === hypothesis.id ? null : hypothesis.id)}
+                      onClick={() => setExpandedId(expandedId === hypothesis.hypothesis ? null : hypothesis.hypothesis)}
                     >
-                      {expandedId === hypothesis.id ? (
+                      {expandedId === hypothesis.hypothesis ? (
                         <ChevronUp className="h-4 w-4" />
                       ) : (
                         <ChevronDown className="h-4 w-4" />
@@ -129,7 +161,7 @@ function HypothesesTab({ sessionId }: { readonly sessionId: string }) {
                   </div>
                 </CardHeader>
 
-                {expandedId === hypothesis.id && (
+                {expandedId === hypothesis.hypothesis && (
                   <CardContent className="pt-0 space-y-3">
                     <div>
                       <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">
@@ -147,12 +179,34 @@ function HypothesesTab({ sessionId }: { readonly sessionId: string }) {
                       <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">
                         Expected Outcomes
                       </p>
-                      <ul className="text-sm list-disc list-inside">
-                        {hypothesis.expected_outcomes.map((outcome, i) => (
-                          <li key={i}>{outcome}</li>
-                        ))}
-                      </ul>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {hypothesis.expected_outcomes}
+                      </p>
                     </div>
+                    {hypothesis.required_resources.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">
+                          Required Resources
+                        </p>
+                        <ul className="text-sm list-disc list-inside">
+                          {hypothesis.required_resources.map((resource, i) => (
+                            <li key={i}>{resource}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {hypothesis.evidence_citations.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">
+                          Evidence Citations
+                        </p>
+                        <ul className="text-sm list-disc list-inside">
+                          {hypothesis.evidence_citations.map((citation, i) => (
+                            <li key={i}>{citation}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </CardContent>
                 )}
               </Card>

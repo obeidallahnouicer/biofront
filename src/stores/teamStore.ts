@@ -15,7 +15,7 @@ interface TeamState {
   createTeam: (data: { name: string; description?: string }) => Promise<Team>;
   updateTeam: (teamId: string, data: Partial<Team>) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
-  inviteMember: (teamId: string, email: string, role: TeamRole) => Promise<void>;
+  inviteMember: (teamId: string, email: string, role: TeamRole) => Promise<string>;
   updateMember: (teamId: string, memberId: string, role: TeamRole) => Promise<void>;
   removeMember: (teamId: string, memberId: string) => Promise<void>;
   setCurrentTeam: (team: Team | null) => void;
@@ -62,7 +62,17 @@ export const useTeamStore = create<TeamState>((set, get) => ({
   fetchMembers: async (teamId) => {
     try {
       const members = await apiClient.getTeamMembers(teamId);
-      set({ members });
+      const withUsers = await Promise.all(
+        members.map(async (member) => {
+          try {
+            const user = await apiClient.getUser(member.user_id);
+            return { ...member, user };
+          } catch {
+            return member;
+          }
+        })
+      );
+      set({ members: withUsers });
     } catch (error) {
       console.error('Failed to fetch members:', error);
     }
@@ -120,9 +130,10 @@ export const useTeamStore = create<TeamState>((set, get) => ({
   inviteMember: async (teamId, email, role) => {
     set({ isLoading: true, error: null });
     try {
-      await apiClient.inviteTeamMember(teamId, email, role);
+      const { token } = await apiClient.inviteTeamMember(teamId, email, role);
       // Refresh members list
       await get().fetchMembers(teamId);
+      return token;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to invite member';
       set({ error: message });

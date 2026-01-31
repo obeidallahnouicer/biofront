@@ -135,7 +135,7 @@ export default function DashboardLayout({
                 <span className="text-xs font-semibold uppercase text-muted-foreground">
                   Your Teams
                 </span>
-                <Link href="/dashboard/teams/new">
+                <Link href="/dashboard/teams?create=true">
                   <Button variant="ghost" size="sm" className="h-6 px-2">
                     +
                   </Button>

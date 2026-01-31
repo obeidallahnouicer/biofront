@@ -4,8 +4,10 @@ import * as React from "react"
 import { useSessionStore } from "@/stores/sessionStore"
 import { useAuthStore } from "@/stores/authStore"
 import wsClient from "@/lib/socket/client"
-import { getMaterialTypeIcon, generateColor } from "@/lib/utils"
+import { getMaterialTypeIcon, generateColor, getStorageBucketForMaterialType } from "@/lib/utils"
 import type { CursorPosition, Material } from "@/types"
+import apiClient from "@/lib/api/client"
+import { MaterialViewerDialog } from "@/components/materials/MaterialViewerDialog"
 
 interface WorkspaceCanvasProps {
   readonly sessionId: string
@@ -17,8 +19,10 @@ export function WorkspaceCanvas({ sessionId, zoom }: WorkspaceCanvasProps) {
   const [isDragging, setIsDragging] = React.useState(false)
   const [dragStart, setDragStart] = React.useState({ x: 0, y: 0 })
   const [offset, setOffset] = React.useState({ x: 0, y: 0 })
+  const [viewerMaterial, setViewerMaterial] = React.useState<Material | null>(null)
+  const [viewerOpen, setViewerOpen] = React.useState(false)
 
-  const { materials, cursors, selectedMaterialIds, toggleMaterialSelection, clearSelection } = useSessionStore()
+  const { materials, cursors, selectedMaterialIds, toggleMaterialSelection, clearSelection, updateMaterialMetadata, persistMaterialMetadata } = useSessionStore()
   const { user } = useAuthStore()
 
   // Send cursor position on mouse move
@@ -107,6 +111,28 @@ export function WorkspaceCanvas({ sessionId, zoom }: WorkspaceCanvasProps) {
             material={material}
             isSelected={selectedMaterialIds.includes(material.id)}
             onSelect={() => toggleMaterialSelection(material.id)}
+            onOpen={async () => {
+              try {
+                const fullMaterial = await apiClient.getMaterial(material.id)
+                if (fullMaterial.file_url) {
+                  const bucket = getStorageBucketForMaterialType(fullMaterial.material_type)
+                  const url = await apiClient.getPresignedDownloadUrl(bucket, fullMaterial.file_url)
+                  setViewerMaterial({ ...fullMaterial, download_url: url })
+                } else {
+                  setViewerMaterial(fullMaterial)
+                }
+                setViewerOpen(true)
+              } catch (error) {
+                console.error("Failed to open material:", error)
+              }
+            }}
+            onPositionChange={(position, size) => {
+              updateMaterialMetadata(material.id, { canvas: { position, size } })
+            }}
+            onPositionCommit={(position, size) => {
+              persistMaterialMetadata(material.id, { ...(material.metadata || {}), canvas: { position, size } })
+            }}
+            zoom={zoom}
           />
         ))}
 
@@ -120,6 +146,15 @@ export function WorkspaceCanvas({ sessionId, zoom }: WorkspaceCanvasProps) {
       <div className="absolute bottom-4 left-4 text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded">
         {materials.length} materials • Zoom: {Math.round(zoom * 100)}%
       </div>
+
+      <MaterialViewerDialog
+        material={viewerMaterial}
+        open={viewerOpen}
+        onOpenChange={(open) => {
+          setViewerOpen(open)
+          if (!open) setViewerMaterial(null)
+        }}
+      />
     </div>
   )
 }
@@ -128,11 +163,46 @@ interface MaterialNodeProps {
   readonly material: Material
   readonly isSelected: boolean
   readonly onSelect: () => void
+  readonly onOpen: () => void
+  readonly onPositionChange: (position: { x: number; y: number }, size: { width: number; height: number }) => void
+  readonly onPositionCommit: (position: { x: number; y: number }, size: { width: number; height: number }) => void
+  readonly zoom: number
 }
 
-function MaterialNode({ material, isSelected, onSelect }: MaterialNodeProps) {
-  const position = material.position || { x: Math.random() * 800, y: Math.random() * 600 }
-  const size = material.size || { width: 200, height: 150 }
+function MaterialNode({ material, isSelected, onSelect, onOpen, onPositionChange, onPositionCommit, zoom }: MaterialNodeProps) {
+  const canvasMeta = (material.metadata || {}).canvas as { position?: { x: number; y: number }; size?: { width: number; height: number } } | undefined
+  const initialPosition = canvasMeta?.position || material.position || { x: Math.random() * 800, y: Math.random() * 600 }
+  const initialSize = canvasMeta?.size || material.size || { width: 220, height: 160 }
+  const [position, setPosition] = React.useState(initialPosition)
+  const [size] = React.useState(initialSize)
+  const [dragging, setDragging] = React.useState(false)
+
+  React.useEffect(() => {
+    setPosition(initialPosition)
+  }, [material.id])
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation()
+    setDragging(true)
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging) return
+    const newPos = {
+      x: position.x + (e.movementX || 0) / zoom,
+      y: position.y + (e.movementY || 0) / zoom,
+    }
+    setPosition(newPos)
+    onPositionChange(newPos, size)
+  }
+
+  const handlePointerUp = () => {
+    if (dragging) {
+      setDragging(false)
+      onPositionCommit(position, size)
+    }
+  }
 
   return (
     <div
@@ -149,6 +219,14 @@ function MaterialNode({ material, isSelected, onSelect }: MaterialNodeProps) {
         e.stopPropagation()
         onSelect()
       }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        onOpen()
+      }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
     >
       <div className="p-3 h-full flex flex-col">
         <div className="flex items-center gap-2 mb-2">

@@ -23,26 +23,24 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import apiClient from "@/lib/api/client"
-import type { SessionActivity } from "@/types"
+import type { SessionActivity, User } from "@/types"
 
 interface ActivityPanelProps {
   readonly sessionId: string
 }
 
 const actionIcons: Record<string, React.ElementType> = {
-  "material.upload": Upload,
-  "material.create": Upload,
-  "material.delete": Trash2,
-  "material.update": Edit,
-  "session.join": LogIn,
-  "session.leave": LogOut,
-  "note.create": StickyNote,
-  "note.update": Edit,
-  "comment.add": MessageSquare,
-  "paper.add": FileText,
-  "sequence.add": Dna,
-  "image.add": ImageIcon,
-  "experiment.add": FlaskConical,
+  created: Upload,
+  updated: Edit,
+  deleted: Trash2,
+  joined: LogIn,
+  left: LogOut,
+  comment: MessageSquare,
+  paper: FileText,
+  sequence: Dna,
+  image: ImageIcon,
+  experiment: FlaskConical,
+  note: StickyNote,
 }
 
 // Generate a consistent color from user ID
@@ -63,29 +61,13 @@ const getUserColor = (userId: string): string => {
 
 const getActionDescription = (activity: SessionActivity): string => {
   const details = activity.details || {}
-  const materialTitle = typeof details.title === 'string' ? details.title : ''
-  
-  switch (activity.action) {
-    case "material.upload":
-    case "material.create":
-      return materialTitle ? `uploaded "${materialTitle}"` : "uploaded a material"
-    case "material.delete":
-      return materialTitle ? `deleted "${materialTitle}"` : "deleted a material"
-    case "material.update":
-      return materialTitle ? `updated "${materialTitle}"` : "updated a material"
-    case "session.join":
-      return "joined the session"
-    case "session.leave":
-      return "left the session"
-    case "note.create":
-      return "created a new note"
-    case "note.update":
-      return "updated a note"
-    case "comment.add":
-      return "added a comment"
-    default:
-      return activity.action.replace(/\./g, " ")
+  const title = typeof details.title === "string" ? details.title : ""
+  const entityLabel = activity.entity_type.replace(/_/g, " ")
+  const actionLabel = activity.action_type.replace(/_/g, " ")
+  if (title) {
+    return `${actionLabel} ${entityLabel} "${title}"`
   }
+  return `${actionLabel} ${entityLabel}`
 }
 
 const getInitials = (name: string) => {
@@ -101,6 +83,7 @@ export function ActivityPanel({ sessionId }: ActivityPanelProps) {
   const [activities, setActivities] = React.useState<SessionActivity[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [userMap, setUserMap] = React.useState<Record<string, User>>({})
 
   const loadActivities = React.useCallback(async () => {
     try {
@@ -119,6 +102,34 @@ export function ActivityPanel({ sessionId }: ActivityPanelProps) {
   React.useEffect(() => {
     loadActivities()
   }, [loadActivities])
+
+  React.useEffect(() => {
+    const loadUsers = async () => {
+      const uniqueIds = Array.from(
+        new Set(activities.map((activity) => activity.user_id).filter(Boolean))
+      ) as string[]
+      const missing = uniqueIds.filter((id) => !userMap[id])
+      if (missing.length === 0) return
+      const entries = await Promise.all(
+        missing.map(async (id) => {
+          try {
+            const user = await apiClient.getUser(id)
+            return [id, user] as const
+          } catch {
+            return null
+          }
+        })
+      )
+      const updates = entries.filter(Boolean) as Array<readonly [string, User]>
+      if (updates.length > 0) {
+        setUserMap((prev) => ({
+          ...prev,
+          ...Object.fromEntries(updates),
+        }))
+      }
+    }
+    loadUsers()
+  }, [activities, userMap])
 
   if (isLoading) {
     return (
@@ -169,8 +180,9 @@ export function ActivityPanel({ sessionId }: ActivityPanelProps) {
 
               <div className="space-y-4">
                 {activities.map((activity) => {
-                  const IconComponent = actionIcons[activity.action] || Activity
-                  const userName = activity.user?.full_name || "Unknown User"
+                  const IconComponent = actionIcons[activity.action_type] || actionIcons[activity.entity_type] || Activity
+                  const user = activity.user_id ? userMap[activity.user_id] : undefined
+                  const userName = user?.full_name || "Unknown User"
 
                   return (
                     <div key={activity.id} className="relative flex gap-3 pl-10">
@@ -185,7 +197,7 @@ export function ActivityPanel({ sessionId }: ActivityPanelProps) {
                           <Avatar className="h-6 w-6">
                             <AvatarFallback
                               className="text-[10px] text-white"
-                              style={{ backgroundColor: getUserColor(activity.user_id) }}
+                              style={{ backgroundColor: getUserColor(activity.user_id || "unknown") }}
                             >
                               {getInitials(userName)}
                             </AvatarFallback>
@@ -198,7 +210,7 @@ export function ActivityPanel({ sessionId }: ActivityPanelProps) {
                               </span>
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {formatDistanceToNow(new Date(activity.created_at), {
+                              {formatDistanceToNow(new Date(activity.timestamp), {
                                 addSuffix: true,
                               })}
                             </p>

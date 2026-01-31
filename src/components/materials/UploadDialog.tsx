@@ -98,11 +98,12 @@ export function UploadDialog({ sessionId, open, onOpenChange, materialType: init
   const [materialType, setMaterialType] = React.useState<MaterialType>(initialType ?? MaterialType.PAPER)
   const [title, setTitle] = React.useState("")
   const [description, setDescription] = React.useState("")
+  const [noteContent, setNoteContent] = React.useState("")
   const [file, setFile] = React.useState<File | null>(null)
   const [isUploading, setIsUploading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  const { uploadMaterial } = useSessionStore()
+  const { uploadMaterial, createMaterial } = useSessionStore()
 
   // Update material type when prop changes
   React.useEffect(() => {
@@ -141,8 +142,13 @@ export function UploadDialog({ sessionId, open, onOpenChange, materialType: init
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!file || !title.trim()) {
-      setError("Please provide a file and title")
+    if (!title.trim()) {
+      setError("Please provide a title")
+      return
+    }
+
+    if (!file && materialType !== MaterialType.NOTE) {
+      setError("Please provide a file")
       return
     }
 
@@ -155,12 +161,20 @@ export function UploadDialog({ sessionId, open, onOpenChange, materialType: init
         metadata.description = description
       }
 
-      await uploadMaterial(sessionId, file, materialType, title.trim(), metadata)
+      if (materialType === MaterialType.NOTE && !file) {
+        await createMaterial(sessionId, materialType, title.trim(), {
+          ...metadata,
+          content: noteContent,
+        })
+      } else if (file) {
+        await uploadMaterial(sessionId, file, materialType, title.trim(), metadata)
+      }
 
       // Reset form
       setFile(null)
       setTitle("")
       setDescription("")
+      setNoteContent("")
       onOpenChange(false)
     } catch (err) {
       console.error("Upload failed:", err)
@@ -175,6 +189,7 @@ export function UploadDialog({ sessionId, open, onOpenChange, materialType: init
       setFile(null)
       setTitle("")
       setDescription("")
+      setNoteContent("")
       setError(null)
       onOpenChange(false)
     }
@@ -225,7 +240,7 @@ export function UploadDialog({ sessionId, open, onOpenChange, materialType: init
 
           {/* Drop Zone */}
           <div className="space-y-2">
-            <Label>File</Label>
+            <Label>File {materialType === MaterialType.NOTE && <Badge variant="outline" className="ml-1">Optional</Badge>}</Label>
             {file ? (
               <div className="flex items-center gap-3 p-3 border rounded-lg bg-muted/50">
                 <TypeIcon className="h-8 w-8 text-muted-foreground shrink-0" />
@@ -298,6 +313,19 @@ export function UploadDialog({ sessionId, open, onOpenChange, materialType: init
             />
           </div>
 
+          {materialType === MaterialType.NOTE && (
+            <div className="space-y-2">
+              <Label htmlFor="note">Note Content</Label>
+              <Textarea
+                id="note"
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="Write your note..."
+                rows={4}
+              />
+            </div>
+          )}
+
           {/* Error */}
           {error && (
             <p className="text-sm text-destructive">{error}</p>
@@ -308,7 +336,7 @@ export function UploadDialog({ sessionId, open, onOpenChange, materialType: init
             <Button type="button" variant="outline" onClick={handleClose} disabled={isUploading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isUploading || !file || !title.trim()}>
+            <Button type="submit" disabled={isUploading || !title.trim() || (materialType !== MaterialType.NOTE && !file)}>
               {isUploading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -145,6 +145,17 @@ export function getMaterialTypeColor(type: string): string {
   return colors[type] || "bg-gray-100 text-gray-800";
 }
 
+export function getStorageBucketForMaterialType(type: string): string {
+  const buckets: Record<string, string> = {
+    paper: "bioloupe-papers",
+    sequence: "bioloupe-sequences",
+    image: "bioloupe-images",
+    experiment: "bioloupe-experimental-data",
+    note: "bioloupe-papers",
+  };
+  return buckets[type] || "bioloupe-papers";
+}
+
 export function parseSequence(sequence: string): {
   type: "protein" | "dna" | "rna" | "unknown";
   length: number;

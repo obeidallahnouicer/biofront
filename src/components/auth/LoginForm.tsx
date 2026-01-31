@@ -26,12 +26,21 @@ export function LoginForm() {
   const router = useRouter()
   const { login, isLoading, error, clearError } = useAuthStore()
 
+  const rawDemoEmail = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "demo@example.com"
+  // Sanitize known-invalid local domains (some environments use .local for dev hosts)
+  const demoEmail = rawDemoEmail.includes(".local") ? rawDemoEmail.replace(/@[^@]+$/, "@example.com") : rawDemoEmail
+  if (rawDemoEmail !== demoEmail) {
+    console.warn(`Sanitized demo email from ${rawDemoEmail} to ${demoEmail}`)
+  }
+  const demoPassword = process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? "DemoPass1!"
+
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
+    defaultValues: { email: demoEmail, password: demoPassword },
   })
 
   const onSubmit = async (data: LoginFormData) => {
@@ -132,6 +141,23 @@ export function LoginForm() {
             <OAuthButton provider="orcid" label="ORCID" />
           </div>
 
+          <div className="mt-2">
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  clearError()
+                  await login(demoEmail, demoPassword)
+                  // router push handled by store on success
+                } catch {
+                  // Handled via store
+                }
+              }}
+            >
+              Sign in as Demo Account
+            </Button>
+          </div>
+
           <p className="text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
             <Link href="/register" className="text-primary hover:underline">
@@ -145,9 +171,16 @@ export function LoginForm() {
 }
 
 function OAuthButton({ provider, label }: Readonly<{ provider: string; label: string }>) {
-  const handleOAuth = () => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-    globalThis.window.location.href = `${apiUrl}/api/v1/oauth/${provider}/authorize`
+  const handleOAuth = async () => {
+    try {
+      const apiClient = (await import("@/lib/api/client")).default
+      const authorizationUrl = await apiClient.getOAuthAuthorizationUrl(
+        provider as "google" | "microsoft" | "orcid"
+      )
+      globalThis.window.location.href = authorizationUrl
+    } catch (error) {
+      console.error("OAuth start failed:", error)
+    }
   }
 
   return (

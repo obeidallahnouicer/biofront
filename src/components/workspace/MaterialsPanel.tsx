@@ -14,9 +14,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useSessionStore } from "@/stores/sessionStore"
-import { formatRelativeTime, getMaterialTypeColor } from "@/lib/utils"
-import { MaterialType } from "@/types"
+import { formatRelativeTime, getMaterialTypeColor, getStorageBucketForMaterialType } from "@/lib/utils"
+import { MaterialType, type Material } from "@/types"
 import apiClient from "@/lib/api/client"
+import { MaterialViewerDialog } from "@/components/materials/MaterialViewerDialog"
 
 interface MaterialsPanelProps {
   readonly sessionId: string
@@ -33,6 +34,8 @@ const typeIcons: Record<string, React.ReactNode> = {
 export function MaterialsPanel({ sessionId }: MaterialsPanelProps) {
   const [searchQuery, setSearchQuery] = React.useState("")
   const [filterType, setFilterType] = React.useState<MaterialType | "all">("all")
+  const [viewerOpen, setViewerOpen] = React.useState(false)
+  const [viewerMaterial, setViewerMaterial] = React.useState<null | Material>(null)
 
   const { materials, deleteMaterial } = useSessionStore()
 
@@ -50,6 +53,34 @@ export function MaterialsPanel({ sessionId }: MaterialsPanelProps) {
       } catch (error) {
         console.error("Failed to delete material:", error)
       }
+    }
+  }
+
+  const openMaterial = async (materialId: string) => {
+    try {
+      const material = await apiClient.getMaterial(materialId)
+      if (material.file_url) {
+        const bucket = getStorageBucketForMaterialType(material.material_type)
+        const url = await apiClient.getPresignedDownloadUrl(bucket, material.file_url)
+        setViewerMaterial({ ...material, download_url: url })
+      } else {
+        setViewerMaterial(material)
+      }
+      setViewerOpen(true)
+    } catch (error) {
+      console.error("Failed to open material:", error)
+    }
+  }
+
+  const downloadMaterial = async (materialId: string) => {
+    try {
+      const material = await apiClient.getMaterial(materialId)
+      if (!material.file_url) return
+      const bucket = getStorageBucketForMaterialType(material.material_type)
+      const url = await apiClient.getPresignedDownloadUrl(bucket, material.file_url)
+      globalThis.window.open(url, "_blank")
+    } catch (error) {
+      console.error("Failed to download material:", error)
     }
   }
 
@@ -116,7 +147,13 @@ export function MaterialsPanel({ sessionId }: MaterialsPanelProps) {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{material.title}</p>
+                        <button
+                          type="button"
+                          className="font-medium text-sm truncate text-left hover:text-primary"
+                          onClick={() => openMaterial(material.id)}
+                        >
+                          {material.title}
+                        </button>
                         <p className="text-xs text-muted-foreground">
                           {formatRelativeTime(material.created_at)}
                         </p>
@@ -128,6 +165,14 @@ export function MaterialsPanel({ sessionId }: MaterialsPanelProps) {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openMaterial(material.id)}>
+                            Open
+                          </DropdownMenuItem>
+                          {material.file_url && (
+                            <DropdownMenuItem onClick={() => downloadMaterial(material.id)}>
+                              Download
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => handleDelete(material.id)}
@@ -154,6 +199,15 @@ export function MaterialsPanel({ sessionId }: MaterialsPanelProps) {
           )}
         </div>
       </ScrollArea>
+
+      <MaterialViewerDialog
+        material={viewerMaterial}
+        open={viewerOpen}
+        onOpenChange={(open) => {
+          setViewerOpen(open)
+          if (!open) setViewerMaterial(null)
+        }}
+      />
     </div>
   )
 }

@@ -15,6 +15,7 @@ import type {
   PaginatedResponse,
   TokenResponse,
   UploadInitiateResponse,
+  TeamInvitationToken,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -127,14 +128,39 @@ class ApiClient {
 
   async logout(): Promise<void> {
     try {
-      await this.client.post('/api/v1/auth/logout');
+      const refreshToken = this.getRefreshToken();
+      if (refreshToken) {
+        await this.client.post('/api/v1/auth/logout', undefined, {
+          params: { refresh_token: refreshToken },
+        });
+      }
     } finally {
       this.clearTokens();
     }
   }
 
-  getOAuthUrl(provider: 'google' | 'microsoft' | 'orcid'): string {
-    return `${API_BASE_URL}/api/v1/oauth/${provider}/authorize`;
+  async getOAuthAuthorizationUrl(provider: 'google' | 'microsoft' | 'orcid'): Promise<string> {
+    const response = await this.client.get<{ authorization_url: string }>(
+      `/api/v1/oauth/${provider}/authorize`
+    );
+    return response.data.authorization_url;
+  }
+
+  async exchangeOAuthCode(provider: 'google' | 'microsoft' | 'orcid', code: string, state: string): Promise<{
+    access_token: string;
+    refresh_token: string;
+    user_id: string;
+    email: string;
+  }> {
+    const response = await this.client.get<{
+      access_token: string;
+      refresh_token: string;
+      user_id: string;
+      email: string;
+    }>(`/api/v1/oauth/${provider}/callback`, {
+      params: { code, state },
+    });
+    return response.data;
   }
 
   // ==================== USER METHODS ====================
@@ -146,6 +172,11 @@ class ApiClient {
 
   async updateCurrentUser(data: Partial<User>): Promise<User> {
     const response = await this.client.patch<User>('/api/v1/users/me', data);
+    return response.data;
+  }
+
+  async getUser(userId: string): Promise<User> {
+    const response = await this.client.get<User>(`/api/v1/users/${userId}`);
     return response.data;
   }
 
@@ -180,8 +211,16 @@ class ApiClient {
     return response.data;
   }
 
-  async inviteTeamMember(teamId: string, email: string, role: TeamRole): Promise<void> {
-    await this.client.post(`/api/v1/teams/${teamId}/members`, { email, role });
+  async inviteTeamMember(teamId: string, email: string, role: TeamRole): Promise<TeamInvitationToken> {
+    const response = await this.client.post<TeamInvitationToken>(
+      `/api/v1/teams/${teamId}/invitations`,
+      { email, role }
+    );
+    return response.data;
+  }
+
+  async acceptTeamInvitation(token: string): Promise<void> {
+    await this.client.post(`/api/v1/teams/invitations/${token}/accept`);
   }
 
   async updateTeamMember(teamId: string, memberId: string, role: TeamRole): Promise<TeamMember> {
@@ -207,7 +246,7 @@ class ApiClient {
 
   async getSessions(params?: {
     team_id?: string;
-    archived?: boolean;
+    include_archived?: boolean;
     skip?: number;
     limit?: number;
   }): Promise<PaginatedResponse<Session>> {
@@ -225,16 +264,12 @@ class ApiClient {
     return response.data;
   }
 
-  async deleteSession(sessionId: string): Promise<void> {
-    await this.client.delete(`/api/v1/sessions/${sessionId}`);
+  async archiveSession(sessionId: string): Promise<void> {
+    await this.client.post(`/api/v1/sessions/${sessionId}/archive`);
   }
 
-  async archiveSession(sessionId: string): Promise<Session> {
-    return this.updateSession(sessionId, { is_archived: true });
-  }
-
-  async unarchiveSession(sessionId: string): Promise<Session> {
-    return this.updateSession(sessionId, { is_archived: false });
+  async unarchiveSession(sessionId: string): Promise<void> {
+    await this.client.post(`/api/v1/sessions/${sessionId}/unarchive`);
   }
 
   async getSessionParticipants(sessionId: string): Promise<SessionParticipant[]> {
@@ -257,7 +292,7 @@ class ApiClient {
 
   async searchSessions(query: string): Promise<Session[]> {
     const response = await this.client.get<Session[]>('/api/v1/sessions/search', {
-      params: { query },
+      params: { q: query },
     });
     return response.data;
   }
@@ -269,14 +304,17 @@ class ApiClient {
     material_type: MaterialType;
     title: string;
     filename: string;
-    metadata?: Record<string, unknown>;
+    content_type: string;
+    file_size: number;
   }): Promise<UploadInitiateResponse> {
     const response = await this.client.post<UploadInitiateResponse>('/api/v1/materials/upload/initiate', data);
     return response.data;
   }
 
-  async completeUpload(materialId: string): Promise<Material> {
-    const response = await this.client.post<Material>(`/api/v1/materials/upload/${materialId}/complete`);
+  async completeUpload(materialId: string, checksum?: string | null): Promise<Material> {
+    const response = await this.client.post<Material>(`/api/v1/materials/upload/${materialId}/complete`, {
+      checksum: checksum ?? null,
+    });
     return response.data;
   }
 
@@ -286,6 +324,16 @@ class ApiClient {
         'Content-Type': file.type || 'application/octet-stream',
       },
     });
+  }
+
+  async uploadPart(uploadUrl: string, chunk: Blob, contentType: string): Promise<string | null> {
+    const response = await axios.put(uploadUrl, chunk, {
+      headers: {
+        'Content-Type': contentType || 'application/octet-stream',
+      },
+    });
+    const etag = response.headers?.etag;
+    return etag ? String(etag).replace(/\"/g, '') : null;
   }
 
   async getSessionMaterials(
@@ -298,13 +346,24 @@ class ApiClient {
     return response.data;
   }
 
-  async getMaterial(materialId: string): Promise<Material & { download_url?: string }> {
-    const response = await this.client.get<Material & { download_url?: string }>(`/api/v1/materials/${materialId}`);
+  async getMaterial(materialId: string): Promise<Material> {
+    const response = await this.client.get<Material>(`/api/v1/materials/${materialId}`);
     return response.data;
   }
 
   async updateMaterial(materialId: string, data: Partial<Material>): Promise<Material> {
     const response = await this.client.patch<Material>(`/api/v1/materials/${materialId}`, data);
+    return response.data;
+  }
+
+  async createMaterial(data: {
+    session_id: string;
+    material_type: MaterialType;
+    title: string;
+    metadata?: Record<string, unknown> | null;
+    file_url?: string | null;
+  }): Promise<Material> {
+    const response = await this.client.post<Material>('/api/v1/materials', data);
     return response.data;
   }
 
@@ -314,35 +373,66 @@ class ApiClient {
 
   async searchMaterials(query: string, sessionId?: string): Promise<Material[]> {
     const response = await this.client.get<Material[]>('/api/v1/materials/search', {
-      params: { query, session_id: sessionId },
+      params: { q: query, session_id: sessionId },
     });
     return response.data;
   }
 
   async getSimilarMaterials(materialId: string): Promise<SimilarMaterial[]> {
-    const response = await this.client.get<SimilarMaterial[]>(`/api/v1/materials/${materialId}/similarities`);
+    const response = await this.client.post<{ results: SimilarMaterial[] }>(`/api/v1/search/similarity`, {
+      material_id: materialId,
+      collection: 'materials',
+    });
+    return response.data.results;
+  }
+
+  async getPresignedDownloadUrl(bucket: string, objectKey: string): Promise<string> {
+    const response = await this.client.post<{ url: string }>(`/api/v1/uploads/presigned-download`, {
+      bucket,
+      object_key: objectKey,
+    });
+    return response.data.url;
+  }
+
+  async completeMultipartUpload(data: {
+    bucket: string;
+    object_key: string;
+    upload_id: string;
+    parts: Array<{ part_number: number; etag: string }>;
+    checksum?: string | null;
+  }): Promise<{ file_url: string; checksum: string | null }>{
+    const response = await this.client.post<{ file_url: string; checksum: string | null }>(
+      `/api/v1/uploads/complete`,
+      data
+    );
     return response.data;
   }
 
   // ==================== AI FEATURES ====================
 
   async generateHypotheses(
-    sessionId: string,
     data: {
+      session_id: string;
       research_goal: string;
       focus_area?: string;
       num_hypotheses?: number;
+      llm_model?: string;
     }
-  ): Promise<{ hypotheses: Hypothesis[] }> {
-    const response = await this.client.post<{ hypotheses: Hypothesis[] }>(
-      `/api/v1/sessions/${sessionId}/hypotheses/generate`,
+  ): Promise<{
+    hypotheses: Hypothesis[];
+    model_used: string;
+    evidence_count: number;
+    patterns_identified: number;
+  }> {
+    const response = await this.client.post<{
+      hypotheses: Hypothesis[];
+      model_used: string;
+      evidence_count: number;
+      patterns_identified: number;
+    }>(
+      `/api/v1/hypotheses/generate`,
       data
     );
-    return response.data;
-  }
-
-  async getHypotheses(sessionId: string): Promise<{ hypotheses: Hypothesis[] }> {
-    const response = await this.client.get<{ hypotheses: Hypothesis[] }>(`/api/v1/sessions/${sessionId}/hypotheses`);
     return response.data;
   }
 
@@ -357,9 +447,10 @@ class ApiClient {
     ranking_id: string;
     ranked_variants: RankedVariant[];
     recommended_for_testing: RankedVariant[];
+    summary: Record<string, number>;
   }> {
     const response = await this.client.post(
-      `/api/v1/sessions/${sessionId}/variants/rank`,
+      `/api/v1/variants/sessions/${sessionId}/rank`,
       data
     );
     return response.data;

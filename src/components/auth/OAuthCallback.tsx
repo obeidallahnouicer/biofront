@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useAuthStore } from "@/stores/authStore"
 import apiClient from "@/lib/api/client"
 
-export function OAuthCallback() {
+export function OAuthCallback({ provider }: { readonly provider: "google" | "microsoft" | "orcid" }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { fetchCurrentUser } = useAuthStore()
@@ -19,23 +19,23 @@ export function OAuthCallback() {
     processed.current = true
 
     const handleCallback = async () => {
-      const accessToken = searchParams.get("access_token")
-      const refreshToken = searchParams.get("refresh_token")
       const errorParam = searchParams.get("error")
+      const code = searchParams.get("code")
+      const state = searchParams.get("state")
 
       if (errorParam) {
         setError(errorParam)
         return
       }
 
-      if (!accessToken || !refreshToken) {
-        setError("Invalid callback parameters")
+      if (!code || !state) {
+        setError("Missing OAuth authorization parameters")
         return
       }
 
       try {
-        // Store tokens
-        apiClient.setTokens(accessToken, refreshToken)
+        const tokens = await apiClient.exchangeOAuthCode(provider, code, state)
+        apiClient.setTokens(tokens.access_token, tokens.refresh_token)
 
         // Fetch user info
         await fetchCurrentUser()
