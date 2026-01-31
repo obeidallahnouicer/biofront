@@ -1,10 +1,24 @@
-const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell, session } = require('electron');
 const path = require('path');
 const isDev = require('electron-is-dev');
 
 let mainWindow;
 
 function createWindow() {
+  // Set Content Security Policy
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          isDev
+            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:* ws://localhost:*; img-src 'self' data: https:; style-src 'self' 'unsafe-inline';"
+            : "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';"
+        ]
+      }
+    });
+  });
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
